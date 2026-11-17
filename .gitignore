@@ -1,0 +1,17 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+data/admin.key
+data/secrets.json
+data/users.json
+data/query_logs.json
+data/blocked_attempts.json
+data/*.ndjson
+data/*.tmp
+.playwright-cli/
+

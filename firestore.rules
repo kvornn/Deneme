@@ -1,0 +1,265 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Security Primitives
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isVerified() && request.auth.uid == userId; }
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Root admin check without DB lookup (safe for list queries) + full admin check with admins collection
+    function isRootAdminEmail() {
+      return isVerified() && request.auth.token.email == 'anonimhesap6506@gmail.com';
+    }
+    function isAdmin() {
+      return isRootAdminEmail() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // Validation Blueprints
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll([
+          'id', 'uid', 'username', 'displayName', 'role', 'emailVerified',
+          'banned', 'banReason', 'dailyUsed', 'usageDate', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'uid', 'username', 'displayName', 'role', 'emailVerified',
+          'banned', 'banReason', 'dailyUsed', 'usageDate', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 5 && data.id.size() <= 128
+        && data.id != 'admin_root'
+        && data.id.matches('^usr_[a-zA-Z0-9_\\-]+$')
+        && data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.username is string && data.username.size() >= 3 && data.username.size() <= 32
+        && data.username.matches('^[a-zA-Z0-9_.-]{3,32}$')
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.role in ['Üye', 'Destekçi', 'İşletme']
+        && data.emailVerified is bool
+        && data.banned is bool
+        && data.banReason is string && data.banReason.size() <= 240
+        && data.dailyUsed is int && data.dailyUsed >= 0 && data.dailyUsed <= 1000000
+        && data.usageDate is string && data.usageDate.size() <= 16
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'passwordHash', 'lastLoginIp', 'lastLoginAt', 'acceptedTermsAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'passwordHash', 'lastLoginIp', 'lastLoginAt', 'acceptedTermsAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && data.passwordHash is string && data.passwordHash.size() >= 10 && data.passwordHash.size() <= 300
+        && data.lastLoginIp is string && data.lastLoginIp.size() <= 64
+        && data.lastLoginAt is string && data.lastLoginAt.size() <= 64
+        && data.acceptedTermsAt is string && data.acceptedTermsAt.size() <= 64
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoleConfig(data) {
+      return data.keys().hasAll(['roleName', 'dailyQueryLimit', 'canIdLookup', 'canBulkLookup', 'canEmailOsint', 'updatedAt'])
+        && data.keys().hasOnly(['roleName', 'dailyQueryLimit', 'canIdLookup', 'canBulkLookup', 'canEmailOsint', 'updatedAt'])
+        && data.roleName in ['Üye', 'Destekçi', 'İşletme']
+        && data.dailyQueryLimit is int && data.dailyQueryLimit >= 0 && data.dailyQueryLimit <= 1000000
+        && data.canIdLookup is bool
+        && data.canBulkLookup is bool
+        && data.canEmailOsint is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDatasetMeta(data, datasetId) {
+      return data.keys().hasAll(['id', 'name', 'category', 'format', 'recordCount', 'columns', 'importedAt', 'sizeBytes', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'category', 'format', 'recordCount', 'columns', 'importedAt', 'sizeBytes', 'updatedAt'])
+        && data.id is string && data.id == datasetId && data.id.size() >= 1 && data.id.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.category in ['discord_id', 'email_osint', 'both']
+        && data.format in ['json', 'csv', 'ndjson', 'text', 'synthetic']
+        && data.recordCount is int && data.recordCount >= 0 && data.recordCount <= 1000000
+        && data.columns is list && data.columns.size() <= 50
+        && (data.columns.size() == 0 || data.columns[0] is string)
+        && data.importedAt is string && data.importedAt.size() <= 64
+        && data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 104857600
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDatasetChunk(data) {
+      return data.keys().hasAll(['datasetId', 'chunkIndex', 'totalChunks', 'records', 'updatedAt'])
+        && data.keys().hasOnly(['datasetId', 'chunkIndex', 'totalChunks', 'records', 'updatedAt'])
+        && data.datasetId is string && data.datasetId.size() >= 1 && data.datasetId.size() <= 128
+        && data.chunkIndex is int && data.chunkIndex >= 0 && data.chunkIndex <= 10000
+        && data.totalChunks is int && data.totalChunks >= 1 && data.totalChunks <= 10000
+        && data.records is list && data.records.size() <= 400
+        && (data.records.size() == 0 || data.records[0] is map)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['logType', 'summary', 'actor', 'ip', 'eventTime', 'createdAt'])
+        && data.keys().hasOnly(['logType', 'summary', 'actor', 'ip', 'eventTime', 'createdAt'])
+        && data.logType in ['query', 'blocked_attempt']
+        && data.summary is string && data.summary.size() <= 300
+        && data.actor is string && data.actor.size() <= 120
+        && data.ip is string && data.ip.size() <= 64
+        && data.eventTime is string && data.eventTime.size() <= 64
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAdminEntry(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && data.createdAt is timestamp;
+    }
+
+    // Health check ping path
+    match /test/{docId} {
+      allow get: if isValidId(docId) && docId == 'connection' && isSignedIn();
+    }
+
+    // Users collection (RBAC protected, self-escalation forbidden)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isRootAdminEmail();
+
+      allow create: if isValidId(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(userId)
+            && incoming().role == 'Üye'
+            && incoming().banned == false
+            && incoming().emailVerified == true
+            && incoming().banReason == ''
+            && incoming().dailyUsed == 0
+          )
+        );
+
+      allow update: if isValidId(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'displayName', 'role', 'emailVerified', 'banned', 'banReason', 'dailyUsed', 'usageDate', 'updatedAt']))
+          || (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'dailyUsed', 'usageDate', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // Isolated PII & password hash subcollection
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && docId == 'info' && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && isRootAdminEmail();
+
+        allow create: if isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && isValidUserPrivate(incoming(), userId)
+          && incoming().updatedAt == request.time
+          && (isAdmin() || isOwner(userId));
+
+        allow update: if isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && isValidUserPrivate(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().email == existing().email
+          && incoming().updatedAt == request.time
+          && (
+            (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['passwordHash', 'lastLoginIp', 'lastLoginAt', 'acceptedTermsAt', 'updatedAt']))
+            || (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['lastLoginAt', 'updatedAt']))
+          );
+
+        allow delete: if isValidId(userId) && isValidId(docId) && isAdmin();
+      }
+    }
+
+    // Role permission configs (zero PII)
+    match /roles/{roleId} {
+      allow get: if isValidId(roleId) && roleId in ['uye', 'destekci', 'isletme'] && isVerified();
+      allow list: if isRootAdminEmail();
+      allow create: if isValidId(roleId)
+        && roleId in ['uye', 'destekci', 'isletme']
+        && isValidRoleConfig(incoming())
+        && incoming().updatedAt == request.time
+        && isAdmin();
+      allow update: if isValidId(roleId)
+        && roleId in ['uye', 'destekci', 'isletme']
+        && isValidRoleConfig(incoming())
+        && incoming().roleName == existing().roleName
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['dailyQueryLimit', 'canIdLookup', 'canBulkLookup', 'canEmailOsint', 'updatedAt'])
+        && isAdmin();
+      allow delete: if isValidId(roleId) && isAdmin();
+    }
+
+    // Admin-only Dataset Metadata
+    match /datasets/{datasetId} {
+      allow get: if isValidId(datasetId) && isAdmin();
+      allow list: if isRootAdminEmail();
+      allow create: if isValidId(datasetId)
+        && isValidDatasetMeta(incoming(), datasetId)
+        && incoming().updatedAt == request.time
+        && isAdmin();
+      allow update: if isValidId(datasetId)
+        && isValidDatasetMeta(incoming(), datasetId)
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'format', 'recordCount', 'columns', 'importedAt', 'sizeBytes', 'updatedAt'])
+        && isAdmin();
+      allow delete: if isValidId(datasetId) && isAdmin();
+    }
+
+    // Admin-only Sharded Dataset Records
+    match /dataset_chunks/{chunkId} {
+      allow get: if isValidId(chunkId) && isAdmin();
+      allow list: if isRootAdminEmail();
+      allow create: if isValidId(chunkId)
+        && isValidDatasetChunk(incoming())
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/datasets/$(incoming().datasetId))
+        && isAdmin();
+      allow update: if isValidId(chunkId)
+        && isValidDatasetChunk(incoming())
+        && incoming().datasetId == existing().datasetId
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['chunkIndex', 'totalChunks', 'records', 'updatedAt'])
+        && isAdmin();
+      allow delete: if isValidId(chunkId) && isAdmin();
+    }
+
+    // Admin-only Security & Query Audit Logs
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isRootAdminEmail();
+      allow create: if isValidId(logId)
+        && isValidAuditLog(incoming())
+        && incoming().createdAt == request.time
+        && isAdmin();
+      allow update: if false;
+      allow delete: if isValidId(logId) && isAdmin();
+    }
+
+    // Admin Allowlist
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && isAdmin();
+      allow list: if isRootAdminEmail();
+      allow create: if isValidId(userId)
+        && isValidAdminEntry(incoming(), userId)
+        && incoming().createdAt == request.time
+        && isAdmin();
+      allow update: if false;
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+  }
+}

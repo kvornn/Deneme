@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: sentarika-archive
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: ./data

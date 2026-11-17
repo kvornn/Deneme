@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Core member account profile and RBAC state stored under /users/{userId}.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 128,
+          "pattern": "^usr_[a-zA-Z0-9_-]{1,120}$"
+        },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_.-]{3,32}$"
+        },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["Üye", "Destekçi", "İşletme"] },
+        "emailVerified": { "type": "boolean" },
+        "banned": { "type": "boolean" },
+        "banReason": { "type": "string", "maxLength": 240 },
+        "dailyUsed": { "type": "integer" },
+        "usageDate": { "type": "string", "maxLength": 16 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "uid",
+        "username",
+        "displayName",
+        "role",
+        "emailVerified",
+        "banned",
+        "banReason",
+        "dailyUsed",
+        "usageDate",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateSecurity": {
+      "title": "UserPrivateSecurity",
+      "description": "Isolated PII and credential hash under /users/{userId}/private/info.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 180 },
+        "passwordHash": { "type": "string", "minLength": 10, "maxLength": 300 },
+        "lastLoginIp": { "type": "string", "maxLength": 64 },
+        "lastLoginAt": { "type": "string", "maxLength": 64 },
+        "acceptedTermsAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "passwordHash", "lastLoginIp", "lastLoginAt", "acceptedTermsAt", "updatedAt"]
+    },
+    "RoleConfig": {
+      "title": "RoleConfig",
+      "description": "Admin-managed role quota and module permission configuration.",
+      "type": "object",
+      "properties": {
+        "roleName": { "type": "string", "enum": ["Üye", "Destekçi", "İşletme"] },
+        "dailyQueryLimit": { "type": "integer" },
+        "canIdLookup": { "type": "boolean" },
+        "canBulkLookup": { "type": "boolean" },
+        "canEmailOsint": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roleName", "dailyQueryLimit", "canIdLookup", "canBulkLookup", "canEmailOsint", "updatedAt"]
+    },
+    "DatasetMeta": {
+      "title": "DatasetMeta",
+      "description": "Admin-only breach dataset metadata stored in Firestore.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "category": { "type": "string", "enum": ["discord_id", "email_osint", "both"] },
+        "format": { "type": "string", "enum": ["json", "csv", "ndjson", "text", "synthetic"] },
+        "recordCount": { "type": "integer" },
+        "columns": { "type": "array" },
+        "importedAt": { "type": "string", "maxLength": 64 },
+        "sizeBytes": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "category", "format", "recordCount", "columns", "importedAt", "sizeBytes", "updatedAt"]
+    },
+    "DatasetChunk": {
+      "title": "DatasetChunk",
+      "description": "Sharded dataset records stored under 1MB per document for admin cloud backup/restore.",
+      "type": "object",
+      "properties": {
+        "datasetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "chunkIndex": { "type": "integer" },
+        "totalChunks": { "type": "integer" },
+        "records": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["datasetId", "chunkIndex", "totalChunks", "records", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Admin-only security and query audit logs.",
+      "type": "object",
+      "properties": {
+        "logType": { "type": "string", "enum": ["query", "blocked_attempt"] },
+        "summary": { "type": "string", "maxLength": 300 },
+        "actor": { "type": "string", "maxLength": 120 },
+        "ip": { "type": "string", "maxLength": 64 },
+        "eventTime": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["logType", "summary", "actor", "ip", "eventTime", "createdAt"]
+    },
+    "AdminEntry": {
+      "title": "AdminEntry",
+      "description": "Explicit Firestore admin allowlist entry.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 180 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User accounts keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateSecurity" },
+      "description": "Isolated user PII and login metadata."
+    },
+    "/roles/{roleId}": {
+      "schema": { "$ref": "#/entities/RoleConfig" },
+      "description": "Role permissions and daily quotas."
+    },
+    "/datasets/{datasetId}": {
+      "schema": { "$ref": "#/entities/DatasetMeta" },
+      "description": "Admin-only dataset metadata."
+    },
+    "/dataset_chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/DatasetChunk" },
+      "description": "Admin-only sharded dataset record chunks."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Admin-only audit and blocked registration attempts."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminEntry" },
+      "description": "Admin access registry."
+    }
+  }
+}

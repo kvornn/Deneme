@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.env
+.env.*
+data/admin.key
+data/secrets.json
+data/users.json
+data/query_logs.json
+data/blocked_attempts.json
+data/*.ndjson
+data/*.tmp
+.playwright-cli
